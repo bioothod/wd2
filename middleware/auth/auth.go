@@ -58,6 +58,15 @@ func (ctl *AuthCtl) NewUser(mbox *Mailbox) error {
 	return nil
 }
 
+func (ctl *AuthCtl) DeleteUser(mbox *Mailbox) error {
+	_, err := ctl.db.Exec("DELETE FROM users WHERE username=?", mbox.Username)
+	if err != nil {
+		return fmt.Errorf("could not delete user: %s: %v", mbox.String(), err)
+	}
+
+	return nil
+}
+
 func (ctl *AuthCtl) GetUser(mbox *Mailbox) error {
 	rows, err := ctl.db.Query("SELECT * FROM users WHERE username=?", mbox.Username)
 	if err != nil {
@@ -151,7 +160,7 @@ func (ctl *AuthCtl) BasicAuth(c *web.C, h http.Handler) http.Handler {
 }
 
 func pleaseAuth(w http.ResponseWriter, msg string) {
-	w.Header().Set("WWW-Authenticate", `Basic realm="Gritter"`)
+	w.Header().Set("WWW-Authenticate", `Basic realm="wd2"`)
 	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte(msg))
 }
