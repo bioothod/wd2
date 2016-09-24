@@ -70,8 +70,6 @@ func (ctl *DbFSUser) RemoveAll(name string) error {
 }
 
 func (ctl *DbFSUser) Rename(oldName, newName string) error {
-	fmt.Printf("rename: %s -> %s\n", oldName, newName)
-
 	oent := NewDirEntry(ctl.Username, oldName)
 	if oent.Filename == "/" {
 		return os.ErrInvalid
@@ -99,7 +97,6 @@ func (ctl *DbFSUser) Rename(oldName, newName string) error {
 	if oent.IsDir() {
 		// if we are moving a directory, check whether destination path already exists, in this case it should be a directory
 		err := ctl.FS.StatEntry(nent)
-		fmt.Printf("nent: %s, err: %v\n", nent.String(), err)
 		if err == nil {
 			if !nent.IsDir() {
 				return fmt.Errorf("move: %s -> %s: destination is not a directory", oent.Filename, nent.Filename)
