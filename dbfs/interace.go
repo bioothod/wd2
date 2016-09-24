@@ -44,7 +44,7 @@ func (ctl *DbFSUser) Mkdir(name string, perm os.FileMode) error {
 
 func (ctl *DbFSUser) OpenFile(name string, flag int, perm os.FileMode) (webdav.File, error) {
 	ent := NewDirEntry(ctl.Username, name)
-	ent.Fmode = perm.Perm()
+	ent.Fmode = perm
 
 	err := ctl.FS.StatEntry(ent)
 	if err != nil {
