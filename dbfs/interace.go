@@ -6,6 +6,7 @@ import (
 	"golang.org/x/net/webdav"
 	"os"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -69,7 +70,97 @@ func (ctl *DbFSUser) RemoveAll(name string) error {
 }
 
 func (ctl *DbFSUser) Rename(oldName, newName string) error {
-	return ErrNotSupported
+	fmt.Printf("rename: %s -> %s\n", oldName, newName)
+
+	oent := NewDirEntry(ctl.Username, oldName)
+	if oent.Filename == "/" {
+		return os.ErrInvalid
+	}
+	nent := NewDirEntry(ctl.Username, newName)
+	if nent.Filename == "/" {
+		return os.ErrInvalid
+	}
+
+	if oent.Filename == nent.Filename {
+		return nil
+	}
+
+	if strings.HasPrefix(nent.Filename, oent.Filename + "/") {
+		// We can't rename oldName to be a sub-directory of itself.
+		return os.ErrInvalid
+	}
+
+	// check whether src object exists
+	err := ctl.FS.StatEntry(oent)
+	if err != nil {
+		return err
+	}
+
+	if oent.IsDir() {
+		// if we are moving a directory, check whether destination path already exists, in this case it should be a directory
+		err := ctl.FS.StatEntry(nent)
+		fmt.Printf("nent: %s, err: %v\n", nent.String(), err)
+		if err == nil {
+			if !nent.IsDir() {
+				return fmt.Errorf("move: %s -> %s: destination is not a directory", oent.Filename, nent.Filename)
+			}
+
+			nf := &File {
+				User: ctl,
+				Info: nent,
+			}
+
+			fi, err := nf.Readdir(0)
+			if err != nil {
+				return err
+			}
+
+			if len(fi) != 0 {
+				return fmt.Errorf("move: %s -> %s: destination directory is not empty (%d entries)",
+					oent.Filename, nent.Filename, len(fi))
+			}
+		}
+	}
+
+	err = ctl.FS.DeleteEntry(oent)
+	if err != nil {
+		return err
+	}
+
+	nent.Bucket = oent.Bucket
+	nent.Fmode = oent.Fmode
+	nent.Fsize = oent.Fsize
+
+	err = ctl.FS.InsertEntry(nent)
+	if err != nil {
+		return err
+	}
+
+	if !oent.IsDir() {
+		return nil
+	}
+
+	of := &File {
+		User: ctl,
+		Info: oent,
+	}
+
+	fi, err := of.Readdir(0)
+	if err != nil {
+		return err
+	}
+
+	for _, se := range fi {
+		src := oent.Filename + "/" + se.Name()
+		dst := nent.Filename + "/" + se.Name()
+
+		err = ctl.Rename(src, dst)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (ent *DirEntry) Name() string {
@@ -96,7 +187,8 @@ func (ctl *DbFSUser) Stat(name string) (os.FileInfo, error) {
 
 	err := ctl.FS.StatEntry(ent)
 	if err != nil {
-		return nil, fmt.Errorf("stat: %v", err)
+		return nil, os.ErrNotExist
+		//return nil, fmt.Errorf("stat: %v", err)
 	}
 
 	return ent, nil
