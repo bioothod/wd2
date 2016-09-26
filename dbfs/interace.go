@@ -42,25 +42,51 @@ func (ctl *DbFSUser) Mkdir(name string, perm os.FileMode) error {
 	return err
 }
 
-func (ctl *DbFSUser) OpenFile(name string, flag int, perm os.FileMode) (webdav.File, error) {
+func (ctl *DbFSUser) OpenFile(name string, flags int, perm os.FileMode) (webdav.File, error) {
 	ent := NewDirEntry(ctl.Username, name)
 	ent.Fmode = perm
 
+	glog.Infof("openfile: username: %s, filename: %s, flags: %x, perm: %s", ctl.Username, name, flags, perm.String())
+
+	if ent.Filename == "/" {
+		if flags & (os.O_WRONLY | os.O_RDWR) != 0 {
+				return nil, os.ErrPermission
+		}
+	}
+
 	err := ctl.FS.StatEntry(ent)
 	if err != nil {
-		return nil, fmt.Errorf("openfile: %v", err)
+		if (flags & os.O_CREATE) != 0 {
+			err := ctl.FS.InsertEntry(ent)
+			if err != nil {
+				return nil, fmt.Errorf("openfile: could not create empty file: %v", err)
+			}
+		} else {
+			glog.Errorf("openfile: could not stat file: %v", err)
+			return nil, os.ErrNotExist
+		}
+	}
+
+	// truncate
+	if (flags & (os.O_WRONLY | os.O_RDWR) != 0) && (flags & os.O_TRUNC != 0) && (ent.Size() != 0) {
+		ent.Fsize = 0
+		err := ctl.FS.UpdateEntry(ent)
+		if err != nil {
+			return nil, fmt.Errorf("openfile: truncate failed: %v", err)
+		}
 	}
 
 	f := &File {
 		User: ctl,
 		Info: ent,
 	}
-	glog.Infof("openfile: %s, isdir: %t", ent.String(), ent.IsDir())
+	glog.Infof("openfile: %s, perm: %s", ent.String(), perm.String())
 
 	return f, nil
 }
 
 func (ctl *DbFSUser) RemoveAll(name string) error {
+	glog.Infof("remove: username: %s, filename: %s", ctl.Username, name)
 	ent := NewDirEntry(ctl.Username, name)
 	if ent.Filename == "/" {
 		return os.ErrInvalid
@@ -70,6 +96,7 @@ func (ctl *DbFSUser) RemoveAll(name string) error {
 }
 
 func (ctl *DbFSUser) Rename(oldName, newName string) error {
+	glog.Infof("rename: username: %s, filename: %s -> %s", ctl.Username, oldName, newName)
 	oent := NewDirEntry(ctl.Username, oldName)
 	if oent.Filename == "/" {
 		return os.ErrInvalid
@@ -184,9 +211,11 @@ func (ctl *DbFSUser) Stat(name string) (os.FileInfo, error) {
 
 	err := ctl.FS.StatEntry(ent)
 	if err != nil {
+		glog.Errorf("stat: username: %s, filename: %s, error: %v", ent.Username, ent.Filename, err)
 		return nil, os.ErrNotExist
 		//return nil, fmt.Errorf("stat: %v", err)
 	}
 
+	glog.Infof("stat: %s", ent.String())
 	return ent, nil
 }

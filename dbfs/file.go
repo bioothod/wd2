@@ -2,7 +2,6 @@ package dbfs
 
 import (
 	"fmt"
-	//"github.com/bioothod/elliptics-go/elliptics"
 	"github.com/golang/glog"
 	"io"
 	"os"
@@ -13,7 +12,7 @@ type File struct {
 	User *DbFSUser
 	Info *DirEntry
 
-	readdir_offset int
+	remote_offset int64
 }
 
 func (f *File) Close() error {
@@ -21,18 +20,50 @@ func (f *File) Close() error {
 }
 
 func (f *File) Read(p []byte) (n int, err error) {
-	return 0, ErrNotSupported
+	glog.Infof("read: %v, data_size: %d", f.Info.String(), len(p))
+	if f.Info.IsDir() {
+		return 0, os.ErrInvalid
+	}
+
+	return f.ReadData(p)
 }
 
 func (f *File) Seek(offset int64, whence int) (int64, error) {
-	return 0, ErrNotSupported
+	npos := f.remote_offset
+	switch whence {
+	case os.SEEK_SET:
+		npos = offset
+	case os.SEEK_CUR:
+		npos += offset
+	case os.SEEK_END:
+		npos = int64(f.Info.Fsize) + offset
+	default:
+		npos = -1
+	}
+	if npos < 0 {
+		return 0, os.ErrInvalid
+	}
+
+	f.remote_offset = npos
+
+	return f.remote_offset, nil
 }
 
 func (f *File) Write(p []byte) (n int, err error) {
-	return 0, ErrNotSupported
+	glog.Infof("write: %v, data_size: %d", f.Info.String(), len(p))
+
+	if f.Info.IsDir() {
+		return 0, os.ErrInvalid
+	}
+
+	return f.WriteData(p)
 }
 
 func (f *File) Readdir(count int) ([]os.FileInfo, error) {
+	if !f.Info.IsDir() {
+		return nil, os.ErrInvalid
+	}
+
 	ent := NewDirEntry(f.Info.Username, fmt.Sprintf("%s/%%", f.Info.Filename))
 
 	fi, err := f.User.FS.ScanEntryPrefix(ent)
@@ -42,17 +73,17 @@ func (f *File) Readdir(count int) ([]os.FileInfo, error) {
 	}
 	glog.Infof("readdir: %s, entries: %d", ent.String(), len(fi))
 
-	if f.readdir_offset > len(fi) {
+	if f.remote_offset > int64(len(fi)) {
 		return nil, io.EOF
 	}
 
-	o := f.readdir_offset
-	lret := len(fi) - f.readdir_offset
+	o := int(f.remote_offset)
+	lret := int(int64(len(fi)) - f.remote_offset)
 	if count > 0 && lret > count {
 		lret = count
 	}
 
-	f.readdir_offset += lret
+	f.remote_offset += int64(lret)
 	ret := make([]os.FileInfo, 0, lret)
 	for i := 0; i < lret; i++ {
 		_, file := path.Split(fi[o + i].Filename)

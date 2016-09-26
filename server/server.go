@@ -1,7 +1,7 @@
 package main
 
 import (
-	//"errors"
+	"encoding/json"
 	"flag"
 	//"github.com/goji/param"
 	//"github.com/golang/glog"
@@ -11,6 +11,7 @@ import (
 	"github.com/zenazn/goji/web"
 	"github.com/zenazn/goji/web/middleware"
 	"golang.org/x/net/webdav"
+	"io/ioutil"
 	"log"
 	"net/http"
 	//"os"
@@ -30,7 +31,7 @@ type dbfs_webdav struct {
 func (dbh *dbfs_webdav) ServeHTTPC(c web.C, w http.ResponseWriter, r *http.Request) {
 	username := auth.GetAuthUsername(c)
 	if username == "" {
-		w.Header().Set("WWW-Authenticate", `Basic realm="Gritter"`)
+		w.Header().Set("WWW-Authenticate", `Basic realm="wd2"`)
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("invalid request: please authorize"))
 		return
@@ -51,36 +52,38 @@ func (dbh *dbfs_webdav) ServeHTTPC(c web.C, w http.ResponseWriter, r *http.Reque
 	wdh.ServeHTTP(w, r)
 }
 
+type Config struct {
+	Addr			string				`json:"addr"`
+	AuthParams		string				`json:"auth"`
+	DbFSParams		string				`json:"dbfs"`
+	Ebucket			dbfs.EbucketCtl			`json:"ebucket"`
+}
+
 func main() {
-	addr := flag.String("addr", "", "address to listen")
-	auth_params := flag.String("auth", "", "mysql auth database parameters:\n" +
-		"	user@unix(/path/to/socket)/dbname?charset=utf8\n" +
-		"	user:password@tcp(localhost:5555)/dbname?charset=utf8\n" +
-		"	user:password@/dbname\n" +
-		"	user:password@tcp([de:ad:be:ef::ca:fe]:80)/dbname")
-	dbfs_params := flag.String("dbfs", "", "mysql direntry database parameters:\n" +
-		"	user@unix(/path/to/socket)/dbname?charset=utf8\n" +
-		"	user:password@tcp(localhost:5555)/dbname?charset=utf8\n" +
-		"	user:password@/dbname\n" +
-		"	user:password@tcp([de:ad:be:ef::ca:fe]:80)/dbname")
+	cpath := flag.String("config", "", "config file")
 	flag.Parse()
 
-	if *addr == "" {
-		log.Fatalf("You must provide address to listen")
-	}
-	if *auth_params == "" {
-		log.Fatalf("You must provide correct database parameters")
-	}
-	if *dbfs_params == "" {
-		log.Fatalf("You must provide correct database parameters")
+	if *cpath == "" {
+		log.Fatalf("You must provide config file")
 	}
 
-	actl, err := auth.NewAuthCtl("mysql", *auth_params)
+	cdata, err := ioutil.ReadFile(*cpath)
+	if err != nil {
+		log.Fatalf("Could not read config file '%s': %v", *cpath, err)
+	}
+
+	var conf Config
+	err = json.Unmarshal(cdata, &conf)
+	if err != nil {
+		log.Fatalf("Could not unmarshal config file '%s': %v", *cpath, err)
+	}
+
+	actl, err := auth.NewAuthCtl("mysql", conf.AuthParams)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 
-	fs, err := dbfs.NewDbFS("mysql", *dbfs_params)
+	fs, err := dbfs.NewDbFS("mysql", conf.DbFSParams, &conf.Ebucket)
 	if err != nil {
 		log.Fatalf("Could not create database controller: %v\n", err)
 	}
@@ -99,5 +102,5 @@ func main() {
 
 	mux.Handle(dbh.prefix + "/*", dbh)
 
-	http.ListenAndServe(*addr, mux)
+	http.ListenAndServe(conf.Addr, mux)
 }

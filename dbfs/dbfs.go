@@ -11,16 +11,24 @@ import (
 
 type DbFS struct {
 	db		*sql.DB
+	bp		*BucketProcessor
 }
 
-func NewDbFS(dbtype, dbparams string) (*DbFS, error) {
+func NewDbFS(dbtype, dbparams string, e *EbucketCtl) (*DbFS, error) {
 	db, err := sql.Open(dbtype, dbparams)
 	if err != nil {
 		return nil, fmt.Errorf("could not open db: %s, params: %s: %v", dbtype, dbparams, err)
 	}
 
+	bp, err := NewBucketProcessor(e)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("could not create bucket processor: %v", err)
+	}
+
 	ctl := &DbFS {
 		db:		db,
+		bp:		bp,
 	}
 
 	return ctl, nil
@@ -28,6 +36,7 @@ func NewDbFS(dbtype, dbparams string) (*DbFS, error) {
 
 func (ctl *DbFS) Close() {
 	ctl.db.Close()
+	ctl.bp.Close()
 }
 
 type DirEntry struct {
@@ -123,9 +132,9 @@ func (ctl *DbFS) ScanEntryPrefix(ent *DirEntry) ([]*DirEntry, error) {
 }
 
 func (ctl *DbFS) UpdateEntry(ent *DirEntry) error {
-	_, err := ctl.db.Exec("UPDATE dirs SET mode=?,size=?,modified=? WHERE username=? AND filename=? AND bucket=?",
-		ent.Fmode, ent.Fsize, ent.Modified,
-		ent.Username, ent.Filename, ent.Bucket)
+	_, err := ctl.db.Exec("UPDATE dirs SET mode=?,size=?,modified=?,bucket=? WHERE username=? AND filename=?",
+		ent.Fmode, ent.Fsize, ent.Modified, ent.Bucket,
+		ent.Username, ent.Filename)
 	if err != nil {
 		return fmt.Errorf("could not update entry: %s: %v", ent.String(), err)
 	}
