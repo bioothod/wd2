@@ -34,6 +34,19 @@ func NewDbFS(dbtype, dbparams string, e *EbucketCtl) (*DbFS, error) {
 	return ctl, nil
 }
 
+func NewDbFSWithoutBucket(dbtype, dbparams string) (*DbFS, error) {
+	db, err := sql.Open(dbtype, dbparams)
+	if err != nil {
+		return nil, fmt.Errorf("could not open db: %s, params: %s: %v", dbtype, dbparams, err)
+	}
+
+	ctl := &DbFS {
+		db:		db,
+	}
+
+	return ctl, nil
+}
+
 func (ctl *DbFS) Close() {
 	ctl.db.Close()
 	ctl.bp.Close()
@@ -44,6 +57,7 @@ type DirEntry struct {
 	Filename		string
 	Parent			string
 	Bucket			string
+	Key			string
 	Fmode			os.FileMode
 	Fsize			uint64
 	Created			time.Time
@@ -51,16 +65,16 @@ type DirEntry struct {
 }
 
 func (ent *DirEntry) String() string {
-	return fmt.Sprintf("username: %s, filename: %s, parent: %s, bucket: %s, mode: %o, size: %d, created: '%s', modified: '%s'",
-		ent.Username, ent.Filename, ent.Parent, ent.Bucket, ent.Fmode, ent.Fsize, ent.Created.String(), ent.Modified.String())
+	return fmt.Sprintf("username: %s, filename: %s, parent: %s, bucket: %s, key: %s, mode: %o, size: %d, created: '%s', modified: '%s'",
+		ent.Username, ent.Filename, ent.Parent, ent.Bucket, ent.Key, ent.Fmode, ent.Fsize, ent.Created.String(), ent.Modified.String())
 }
 
 func (ctl *DbFS) InsertEntry(ent *DirEntry) error {
 	ent.Created = time.Now()
 	ent.Modified = ent.Created
 
-	_, err := ctl.db.Exec("INSERT INTO dirs SET username=?,filename=?,parent=?,bucket=?,mode=?,size=?,created=?,modified=?",
-		ent.Username, ent.Filename, ent.Parent, ent.Bucket, ent.Fmode, ent.Fsize, ent.Created, ent.Modified)
+	_, err := ctl.db.Exec("INSERT INTO dirs SET username=?,filename=?,parent=?,bucket=?,rkey=?,mode=?,size=?,created=?,modified=?",
+		ent.Username, ent.Filename, ent.Parent, ent.Bucket, ent.Key, ent.Fmode, ent.Fsize, ent.Created, ent.Modified)
 	if err != nil {
 		return fmt.Errorf("could not insert new dir entry: %s: %v", ent.String(), err)
 	}
@@ -87,7 +101,7 @@ func (ctl *DbFS) StatEntry(ent *DirEntry) error {
 	for rows.Next() {
 		var username, filename string
 
-		err = rows.Scan(&username, &filename, &ent.Parent, &ent.Bucket, &ent.Fmode, &ent.Fsize, &ent.Created, &ent.Modified)
+		err = rows.Scan(&username, &filename, &ent.Parent, &ent.Bucket, &ent.Key, &ent.Fmode, &ent.Fsize, &ent.Created, &ent.Modified)
 		if err != nil {
 			return fmt.Errorf("database schema mismatch: %v", err)
 		}
@@ -115,7 +129,7 @@ func (ctl *DbFS) ScanEntryPrefix(ent *DirEntry) ([]*DirEntry, error) {
 	for rows.Next() {
 		var e DirEntry
 
-		err = rows.Scan(&e.Username, &e.Filename, &e.Parent, &e.Bucket, &e.Fmode, &e.Fsize, &e.Created, &e.Modified)
+		err = rows.Scan(&e.Username, &e.Filename, &e.Parent, &e.Bucket, &e.Key, &e.Fmode, &e.Fsize, &e.Created, &e.Modified)
 		if err != nil {
 			return nil, fmt.Errorf("database schema mismatch: %v", err)
 		}
@@ -132,8 +146,8 @@ func (ctl *DbFS) ScanEntryPrefix(ent *DirEntry) ([]*DirEntry, error) {
 }
 
 func (ctl *DbFS) UpdateEntry(ent *DirEntry) error {
-	_, err := ctl.db.Exec("UPDATE dirs SET mode=?,size=?,modified=?,bucket=? WHERE username=? AND filename=?",
-		ent.Fmode, ent.Fsize, ent.Modified, ent.Bucket,
+	_, err := ctl.db.Exec("UPDATE dirs SET mode=?,size=?,modified=?,bucket=?,rkey=? WHERE username=? AND filename=?",
+		ent.Fmode, ent.Fsize, ent.Modified, ent.Bucket, ent.Key,
 		ent.Username, ent.Filename)
 	if err != nil {
 		return fmt.Errorf("could not update entry: %s: %v", ent.String(), err)

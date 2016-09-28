@@ -1,6 +1,8 @@
 package dbfs
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"github.com/bioothod/elliptics-go/elliptics"
 	"github.com/bioothod/ebucket-go"
@@ -20,6 +22,19 @@ type EbucketCtl struct {
 type BucketProcessor struct {
 	node		*elliptics.Node
 	bp		*ebucket.BucketProcessor
+}
+
+const RandomKeyLength = 128
+
+func GenerateRandomKey(username string) (string, error) {
+	b := make([]byte, RandomKeyLength)
+	_, err := rand.Read(b)
+	// Note that err == nil only if we read len(b) bytes.
+	if err != nil {
+		return "", err
+	}
+
+	return username + ":" + base64.URLEncoding.EncodeToString(b), nil
 }
 
 func NewBucketProcessor (e *EbucketCtl) (*BucketProcessor, error) {
@@ -51,12 +66,18 @@ func NewBucketProcessor (e *EbucketCtl) (*BucketProcessor, error) {
 }
 
 func (bp *BucketProcessor) Close() {
-	bp.bp.Close()
-	bp.node.Free()
+	if bp != nil {
+		bp.bp.Close()
+		bp.node.Free()
+	}
 }
 
 func (f *File) WriteData(p []byte) (int, error) {
 	bp := f.User.FS.bp
+	if bp == nil {
+		return 0, fmt.Errorf("bucket processor is not initialized")
+	}
+
 	session, err := elliptics.NewSession(bp.node)
 	if err != nil {
 		return 0, fmt.Errorf("could not create new session, username: %s, filename: %s, error: %v",
@@ -73,43 +94,51 @@ func (f *File) WriteData(p []byte) (int, error) {
 		}
 		session.SetGroups(meta.Groups)
 		session.SetNamespace(meta.Name)
+
+		f.Info.Bucket = meta.Name
+
+		f.Info.Key, err = GenerateRandomKey(f.User.Username)
+		if err != nil {
+			return 0, fmt.Errorf("could not generate new key, bucket: %s, groups: %v, username: %s, filename: %s, " +
+				"remote_offset: %d, size: %d, error: %v",
+				meta.Name, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
+		}
+
 	} else {
 		meta, err = bp.bp.FindBucket(f.Info.Bucket)
 		if err != nil {
-			return 0, fmt.Errorf("could not get bucket, username: %s, filename: %s, remote_offset: %d, size: %d, error: %v",
-				f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
+			return 0, fmt.Errorf("could not find bucket: %s, username: %s, filename: %s, remote_offset: %d, size: %d, error: %v",
+				f.Info.Bucket, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
 		}
 		session.SetGroups(meta.Groups)
 		session.SetNamespace(meta.Name)
 	}
 
-	key := fmt.Sprintf("%s:%s", f.User.Username, f.Info.Filename)
-	writer, err := elliptics.NewWriteSeeker(session, key, f.remote_offset, uint64(len(p)), 0)
+	writer, err := elliptics.NewWriteSeeker(session, f.Info.Key, f.remote_offset, uint64(len(p)), 0)
 	if err != nil {
-		return 0, fmt.Errorf("could not create new writer, bucket: %s, groups: %v, username: %s, filename: %s, " +
+		return 0, fmt.Errorf("could not create new writer, bucket: %s, key: %s, groups: %v, username: %s, filename: %s, " +
 			"remote_offset: %d, size: %d, error: %v",
-			meta.Name, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
+			meta.Name, f.Info.Key, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
 	}
 	defer writer.Free()
 
 	copied, err := writer.Write(p)
 	if err != nil {
-		return 0, fmt.Errorf("could not write data, bucket: %s, groups: %v, username: %s, filename: %s, " +
+		return 0, fmt.Errorf("could not write data, bucket: %s, key: %s, groups: %v, username: %s, filename: %s, " +
 			"remote_offset: %d, size: %d, error: %v",
-			meta.Name, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
+			meta.Name, f.Info.Key, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
 	}
 
 	if uint64(f.remote_offset) + uint64(len(p)) > f.Info.Fsize {
 		f.Info.Fsize = uint64(f.remote_offset) + uint64(len(p))
 	}
 	f.Info.Modified = time.Now()
-	f.Info.Bucket = meta.Name
 
 	err = f.User.FS.UpdateEntry(f.Info)
 	if err != nil {
-		return 0, fmt.Errorf("could not update dir entry, bucket: %s, groups: %v, username: %s, filename: %s, " +
+		return 0, fmt.Errorf("could not update dir entry, bucket: %s, key: %s, groups: %v, username: %s, filename: %s, " +
 			"remote_offset: %d, size: %d, error: %v",
-			meta.Name, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
+			meta.Name, f.Info.Key, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
 	}
 
 	f.remote_offset += int64(copied)
@@ -118,6 +147,11 @@ func (f *File) WriteData(p []byte) (int, error) {
 }
 
 func (f *File) ReadData(p []byte) (int, error) {
+	bp := f.User.FS.bp
+	if bp == nil {
+		return 0, fmt.Errorf("bucket processor is not initialized")
+	}
+
 	if f.Info.Bucket == "" {
 		return 0, io.EOF
 	}
@@ -126,7 +160,6 @@ func (f *File) ReadData(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 
-	bp := f.User.FS.bp
 	session, err := elliptics.NewSession(bp.node)
 	if err != nil {
 		return 0, fmt.Errorf("could not create new session, username: %s, filename: %s, error: %v",
@@ -142,20 +175,19 @@ func (f *File) ReadData(p []byte) (int, error) {
 	session.SetGroups(meta.Groups)
 	session.SetNamespace(meta.Name)
 
-	key := fmt.Sprintf("%s:%s", f.User.Username, f.Info.Filename)
-	reader, err := elliptics.NewReadSeekerOffsetSize(session, key, uint64(f.remote_offset), uint64(len(p)))
+	reader, err := elliptics.NewReadSeekerOffsetSize(session, f.Info.Key, uint64(f.remote_offset), uint64(len(p)))
 	if err != nil {
-		return 0, fmt.Errorf("could not create new writer, bucket: %s, groups: %v, username: %s, filename: %s, " +
+		return 0, fmt.Errorf("could not create new reader, bucket: %s, key: %s, groups: %v, username: %s, filename: %s, " +
 			"remote_offset: %d, size: %d, error: %v",
-			meta.Name, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
+			meta.Name, f.Info.Key, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
 	}
 	defer reader.Free()
 
 	copied, err := reader.Read(p)
 	if err != nil {
-		return 0, fmt.Errorf("could not write data, bucket: %s, groups: %v, username: %s, filename: %s, " +
+		return 0, fmt.Errorf("could not write data, bucket: %s, key: %s, groups: %v, username: %s, filename: %s, " +
 			"remote_offset: %d, size: %d, error: %v",
-			meta.Name, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
+			meta.Name, f.Info.Key, meta.Groups, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
 	}
 
 	f.remote_offset += int64(copied)

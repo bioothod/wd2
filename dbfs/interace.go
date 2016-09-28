@@ -151,9 +151,12 @@ func (ctl *DbFSUser) Rename(oldName, newName string) error {
 		return err
 	}
 
-	nent.Bucket = oent.Bucket
-	nent.Fmode = oent.Fmode
-	nent.Fsize = oent.Fsize
+	nfilename := nent.Filename
+	nparent := nent.Parent
+
+	nent = oent
+	nent.Filename = nfilename
+	nent.Parent = nparent
 
 	err = ctl.FS.InsertEntry(nent)
 	if err != nil {

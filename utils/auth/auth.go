@@ -46,7 +46,7 @@ func main() {
 	defer actl.Close()
 
 	if *new_user != "" {
-		fs, err := dbfs.NewDbFS("mysql", *dbfs_params)
+		fs, err := dbfs.NewDbFSWithoutBucket("mysql", *dbfs_params)
 		if err != nil {
 			log.Fatalf("Failed to initialize dbfs database: %v", err)
 		}
