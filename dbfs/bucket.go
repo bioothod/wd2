@@ -169,8 +169,8 @@ func (f *File) ReadData(p []byte) (int, error) {
 
 	meta, err := bp.bp.FindBucket(f.Info.Bucket)
 	if err != nil {
-		return 0, fmt.Errorf("could not get bucket, username: %s, filename: %s, remote_offset: %d, size: %d, error: %v",
-			f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
+		return 0, fmt.Errorf("could not find bucket: %s, username: %s, filename: %s, remote_offset: %d, size: %d, error: %v",
+			f.Info.Bucket, f.User.Username, f.Info.Filename, f.remote_offset, len(p), err)
 	}
 	session.SetGroups(meta.Groups)
 	session.SetNamespace(meta.Name)
@@ -193,4 +193,36 @@ func (f *File) ReadData(p []byte) (int, error) {
 	f.remote_offset += int64(copied)
 
 	return copied, nil
+}
+
+func (f *File) RemoveData() error {
+	bp := f.User.FS.bp
+	if bp == nil {
+		return fmt.Errorf("bucket processor is not initialized")
+	}
+
+	session, err := elliptics.NewSession(bp.node)
+	if err != nil {
+		return fmt.Errorf("could not create new session, username: %s, filename: %s, error: %v",
+			f.User.Username, f.Info.Filename, err)
+	}
+	defer session.Delete()
+
+	meta, err := bp.bp.FindBucket(f.Info.Bucket)
+	if err != nil {
+		return fmt.Errorf("could not find bucket: %s, username: %s, filename: %s, error: %v",
+			f.Info.Bucket, f.User.Username, f.Info.Filename, err)
+	}
+	session.SetGroups(meta.Groups)
+	session.SetNamespace(meta.Name)
+
+	for ret := range session.Remove(f.Info.Key) {
+		if ret.Error() == nil {
+			return nil
+		}
+
+		err = ret.Error()
+	}
+
+	return err
 }

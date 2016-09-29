@@ -92,7 +92,26 @@ func (ctl *DbFSUser) RemoveAll(name string) error {
 		return os.ErrInvalid
 	}
 
-	return ctl.FS.DeleteEntry(ent)
+	err := ctl.FS.StatEntry(ent)
+	if err != nil {
+		return err
+	}
+
+	err = ctl.FS.DeleteEntry(ent)
+	if err != nil {
+		return err
+	}
+
+	if ent.IsDir() {
+		return nil
+	}
+
+	f := &File {
+		User: ctl,
+		Info: ent,
+	}
+
+	return f.RemoveData()
 }
 
 func (ctl *DbFSUser) Rename(oldName, newName string) error {
