@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	//"github.com/goji/param"
-	//"github.com/golang/glog"
+	"github.com/golang/glog"
 	//"github.com/zenazn/goji"
 	"github.com/bioothod/wd2/dbfs"
 	"github.com/bioothod/wd2/middleware/auth"
@@ -19,7 +19,9 @@ import (
 )
 
 func webdav_log(r *http.Request, err error) {
-	log.Printf("%s: %s: headers: %+v, error: %v\n", r.Method, r.URL.Path, r.Header, err)
+	if err != nil {
+		glog.Errorf("%s: %s: headers: %+v, error: %v", r.Method, r.URL.Path, r.Header, err)
+	}
 }
 
 type dbfs_webdav struct {
@@ -97,7 +99,6 @@ func main() {
 	mux := web.New()
 	mux.Use(middleware.EnvInit)
 	mux.Use(middleware.SubRouter)
-	mux.Use(middleware.Logger)
 	mux.Use(actl.BasicAuth)
 
 	mux.Handle(dbh.prefix + "/*", dbh)
