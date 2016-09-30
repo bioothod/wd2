@@ -114,7 +114,8 @@ func (f *File) WriteData(p []byte) (int, error) {
 		session.SetNamespace(meta.Name)
 	}
 
-	writer, err := elliptics.NewWriteSeeker(session, f.Info.Key, f.remote_offset, uint64(len(p)), 0)
+	total_size := uint64(f.remote_offset) + uint64(len(p))
+	writer, err := elliptics.NewWriteSeeker(session, f.Info.Key, f.remote_offset, total_size, 0)
 	if err != nil {
 		return 0, fmt.Errorf("could not create new writer, bucket: %s, key: %s, groups: %v, username: %s, filename: %s, " +
 			"remote_offset: %d, size: %d, error: %v",
