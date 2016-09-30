@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/bioothod/elliptics-go/elliptics"
 	"github.com/bioothod/ebucket-go"
+	"github.com/golang/glog"
 	"io"
 	"time"
 )
@@ -70,6 +71,101 @@ func (bp *BucketProcessor) Close() {
 		bp.bp.Close()
 		bp.node.Free()
 	}
+}
+
+func (f *File) ReadDataFrom(r io.Reader) (int64, error) {
+	bp := f.User.FS.bp
+	if bp == nil {
+		return 0, fmt.Errorf("read_from: bucket processor is not initialized")
+	}
+
+	if f.User.TotalSize == 0 {
+		return io.Copy(f, r)
+	}
+
+	session, err := elliptics.NewSession(bp.node)
+	if err != nil {
+		return 0, fmt.Errorf("read_from: could not create new session, username: %s, filename: %s, error: %v",
+			f.User.Username, f.Info.Filename, err)
+	}
+	defer session.Delete()
+
+	var meta *ebucket.BucketMeta
+	if f.Info.Bucket == "" {
+		meta, err = bp.bp.GetBucket(uint64(f.User.TotalSize))
+		if err != nil {
+			return 0, fmt.Errorf("read_from: could not get bucket, username: %s, filename: %s, error: %v",
+				f.User.Username, f.Info.Filename, err)
+		}
+		session.SetGroups(meta.Groups)
+		session.SetNamespace(meta.Name)
+
+		f.Info.Bucket = meta.Name
+
+		f.Info.Key, err = GenerateRandomKey(f.User.Username)
+		if err != nil {
+			return 0, fmt.Errorf("read_from: could not generate new key, " +
+				"bucket: %s, groups: %v, username: %s, filename: %s, error: %v",
+				meta.Name, meta.Groups, f.User.Username, f.Info.Filename, err)
+		}
+
+	} else {
+		meta, err = bp.bp.FindBucket(f.Info.Bucket)
+		if err != nil {
+			return 0, fmt.Errorf("read_from: could not find bucket: %s, username: %s, filename: %s, error: %v",
+				f.Info.Bucket, f.User.Username, f.Info.Filename, err)
+		}
+		session.SetGroups(meta.Groups)
+		session.SetNamespace(meta.Name)
+	}
+
+	var size uint64
+	write_error := fmt.Errorf("write error: empty result from session.WriteData()")
+
+	for ret := range session.WriteData(f.Info.Key, r, uint64(f.remote_offset), uint64(f.User.TotalSize)) {
+		if ret.Error() != nil {
+			glog.Errorf("read_from: username: %s, bucket: %s, groups: %v, key: %s, filename: %s, " +
+				"remote_offset: %d, total_size: %d, write error: %v",
+				f.User.Username, f.Info.Bucket, meta.Groups, f.Info.Key, f.Info.Filename,
+				f.remote_offset, f.User.TotalSize, ret.Error())
+
+			// do not return error if there was at least one successfull write
+			// otherwise return the last error
+			if write_error != nil {
+				write_error = ret.Error()
+			}
+			continue
+		}
+
+		write_error = nil
+		size = ret.Info().Size
+
+		glog.Infof("read_from: username: %s, bucket: %s, groups: %v, key: %s, filename: %s, " +
+			"remote_offset: %d, size: %d/%d",
+			f.User.Username, f.Info.Bucket, meta.Groups, f.Info.Key, f.Info.Filename,
+			f.remote_offset, size, f.User.TotalSize)
+	}
+
+	if write_error != nil {
+		return 0, fmt.Errorf("read_from: username: %s, bucket: %s, groups: %v, key: %s, filename: %s, " +
+				"remote_offset: %d, total_size: %d, write error: %v",
+				f.User.Username, f.Info.Bucket, meta.Groups, f.Info.Key, f.Info.Filename,
+				f.remote_offset, f.User.TotalSize, write_error)
+	}
+
+	f.remote_offset += int64(size)
+
+	if uint64(f.remote_offset) > f.Info.Fsize {
+		f.Info.Fsize = uint64(f.remote_offset)
+	}
+	f.Info.Modified = time.Now()
+
+	err = f.User.FS.UpdateEntry(f.Info)
+	if err != nil {
+		return 0, fmt.Errorf("read_from: could not update dir entry: %s, error: %v", f.Info.String(), err)
+	}
+
+	return int64(size), nil
 }
 
 func (f *File) WriteData(p []byte) (int, error) {

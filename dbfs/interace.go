@@ -13,6 +13,7 @@ import (
 type DbFSUser struct {
 	FS *DbFS
 	Username string
+	TotalSize int64
 }
 
 var ErrNotSupported = fmt.Errorf("dbfs: operation not supported")
@@ -80,7 +81,6 @@ func (ctl *DbFSUser) OpenFile(name string, flags int, perm os.FileMode) (webdav.
 		User: ctl,
 		Info: ent,
 	}
-	glog.Infof("openfile: %s, perm: %s", ent.String(), perm.String())
 
 	return f, nil
 }

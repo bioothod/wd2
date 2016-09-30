@@ -59,6 +59,16 @@ func (f *File) Write(p []byte) (n int, err error) {
 	return f.WriteData(p)
 }
 
+func (f *File) ReadFrom(r io.Reader) (int64, error) {
+	glog.Infof("read_from: %v", f.Info.String())
+
+	if f.Info.IsDir() {
+		return 0, os.ErrInvalid
+	}
+
+	return f.ReadDataFrom(r)
+}
+
 func (f *File) Readdir(count int) ([]os.FileInfo, error) {
 	if !f.Info.IsDir() {
 		return nil, os.ErrInvalid

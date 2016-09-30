@@ -42,6 +42,7 @@ func (dbh *dbfs_webdav) ServeHTTPC(c web.C, w http.ResponseWriter, r *http.Reque
 	fs := &dbfs.DbFSUser {
 		FS: dbh.fs,
 		Username: username,
+		TotalSize: r.ContentLength,
 	}
 
 	wdh := &webdav.Handler {
