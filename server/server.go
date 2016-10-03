@@ -102,7 +102,19 @@ func main() {
 	mux.Use(middleware.SubRouter)
 	mux.Use(actl.BasicAuth)
 
+	if false {
+		wdh := &webdav.Handler {
+			Prefix: dbh.prefix,
+			FileSystem: webdav.FileSystem(webdav.Dir("root")),
+			LockSystem: dbh.locks,
+			Logger: webdav_log,
+		}
+		mux.Handle(dbh.prefix + "/*", wdh)
+		http.ListenAndServe(conf.Addr, mux)
+	}
+
 	mux.Handle(dbh.prefix + "/*", dbh)
+	mux.Handle(dbh.prefix, dbh)
 
 	http.ListenAndServe(conf.Addr, mux)
 }
