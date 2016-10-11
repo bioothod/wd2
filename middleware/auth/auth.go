@@ -4,12 +4,10 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"github.com/golang/glog"
 	"github.com/zenazn/goji/web"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -112,36 +110,20 @@ func (ctl *AuthCtl) Ping() error {
 
 func (ctl *AuthCtl) BasicAuth(c *web.C, h http.Handler) http.Handler {
 	fn := func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Basic ") {
-			pleaseAuth(w, "there is no basic auth authorization header")
-			return
-		}
-
-		abytes, err := base64.StdEncoding.DecodeString(auth[6:])
-		if err != nil {
-			estr := fmt.Sprintf("invalid base64 auth string: %v", err)
-			glog.Errorf("%s", estr)
-			pleaseAuth(w, estr)
-			return
-		}
-
-		astr := string(abytes)
-
-		s := strings.SplitN(astr, ":", 2)
-		if len(s) != 2 {
-			estr := fmt.Sprintf("invalid auth string '%s', there must be ':' separator", astr)
+		username, password, ok := r.BasicAuth()
+		if !ok {
+			estr := fmt.Sprintf("basic auth '%s' has failed", r.Header.Get("Authorization"))
 			glog.Errorf("%s", estr)
 			pleaseAuth(w, estr)
 			return
 		}
 
 		mbox := Mailbox {
-			Username: s[0],
-			Password: s[1],
+			Username: username,
+			Password: password,
 		}
 
-		err = ctl.GetUser(&mbox)
+		err := ctl.GetUser(&mbox)
 		if err != nil {
 			estr := fmt.Sprintf("invalid user '%s': %v", mbox.Username, err)
 			glog.Errorf("%s", estr)
