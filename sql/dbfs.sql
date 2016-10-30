@@ -1,3 +1,5 @@
+SET GLOBAL innodb_file_format=Barracuda;
+
 DROP DATABASE IF EXISTS `wd2.data`;
 CREATE DATABASE `wd2.data`;
 
@@ -13,6 +15,6 @@ CREATE TABLE `dirs` (
     `size` BIGINT NOT NULL,
     `created` DATETIME NULL DEFAULT NULL,
     `modified` DATETIME NULL DEFAULT NULL,
-    INDEX name (`username`, `filename`, `parent`, `bucket`),
+    INDEX name (`username`(128), `filename`(512), `parent`(256), `bucket`),
     INDEX (`rkey`)
-) ENGINE=InnoDB DEFAULT CHARSET=UTF8;
+) ENGINE=InnoDB DEFAULT CHARSET=UTF8 ROW_FORMAT=COMPRESSED;
