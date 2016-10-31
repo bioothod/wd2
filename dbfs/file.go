@@ -74,7 +74,11 @@ func (f *File) Readdir(count int) ([]os.FileInfo, error) {
 		return nil, os.ErrInvalid
 	}
 
-	ent := NewDirEntry(f.Info.Username, fmt.Sprintf("%s/%%", f.Info.Filename))
+	ent, err := f.User.NewDirEntry(f.Info.Username, fmt.Sprintf("%s/%%", f.Info.Filename))
+	if err != nil {
+		glog.Errorf("readdir: username: %s, filename: %s: could not create new entry: %v", ent.Username, ent.Filename, err)
+		return nil, err
+	}
 
 	fi, err := f.User.FS.ScanEntryPrefix(ent)
 	if err != nil {
